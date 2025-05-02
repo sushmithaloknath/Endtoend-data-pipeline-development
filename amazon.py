@@ -46,43 +46,41 @@ if "Enter the characters" in driver.page_source:
 
 # CSV file setup
 csv_filename = os.path.join(script_dir, "amazon_products.csv")
-product_list = [["Product Name", "Price", "Rating", "Reviews"]]
+product_list = [["Product Name", "Price", "Rating", "Reviews", "Discount", "Availability", "Delivery Date"]]
 
 # Number of pages to scrape
-max_pages = 5  # Change this to scrape more pages
+max_pages = 15 # Change this to scrape more pages
 
-# Function to scroll slowly and visibly
-def scroll_slowly(driver, scroll_pause_time=1, scroll_increment=300):
-    last_height = driver.execute_script("return document.body.scrollHeight")
-    current_scroll = 0
-    while current_scroll < last_height:
-        # Scroll down by a small increment
-        driver.execute_script(f"window.scrollTo(0, {current_scroll});")
-        current_scroll += scroll_increment
-        print(f"🔄 Scrolled to {current_scroll}px")
-        time.sleep(scroll_pause_time)  # Wait for the page to load
+# Function to extract stock & delivery from product page
+def extract_product_page_details(product_url):
+    driver.execute_script("window.open('', '_blank');")  # Open new tab
+    driver.switch_to.window(driver.window_handles[1])  # Switch to new tab
+    driver.get(product_url)
+    time.sleep(random.uniform(4, 7))  # Wait for page to load
 
-        # Update the last height
-        new_height = driver.execute_script("return document.body.scrollHeight")
-        if new_height > last_height:
-            last_height = new_height
-
-# Function to highlight the "Next" button
-def highlight_next_button(driver):
+    # Extract stock availability
     try:
-        next_button = driver.find_element(By.XPATH, "//a[contains(@class, 's-pagination-next')]")
-        driver.execute_script("arguments[0].style.border='3px solid red';", next_button)  # Highlight with a red border
-        print("🔴 Highlighted the 'Next' button.")
-        time.sleep(2)  # Pause to see the highlight
-    except Exception as e:
-        print(f"⚠️ Error highlighting 'Next' button: {e}")
+        stock = driver.find_element(By.ID, "availability").text.strip()
+    except:
+        stock = "Not Available"
+
+    # Extract delivery date
+    try:
+        delivery = driver.find_element(By.XPATH, "//div[contains(@id,'mir-layout-DELIVERY_BLOCK')]").text
+    except:
+        delivery = "Not Mentioned"
+
+    driver.close()  # Close tab
+    driver.switch_to.window(driver.window_handles[0])  # Switch back to main tab
+    return stock, delivery
 
 # Loop through pages
 for page in range(1, max_pages + 1):
     print(f"\n📄 Scraping Page {page}...\n")
 
-    # Scroll slowly to load all products
-    scroll_slowly(driver)
+    # Wait to load products
+    WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.XPATH, "//div[@data-component-type='s-search-result']")))
+    time.sleep(random.uniform(3, 5))  # Pause for additional loading
 
     # Extract product details
     products = driver.find_elements(By.XPATH, "//div[@data-component-type='s-search-result']")
@@ -109,23 +107,45 @@ for page in range(1, max_pages + 1):
         except:
             reviews = "N/A"
 
+        # Extract Discount
+        try:
+            discount = product.find_element(By.XPATH, ".//span[contains(text(), 'off') or contains(text(), 'Save')]").text
+        except:
+            discount = "N/A"
+
+        # Extract Availability
+        try:
+            availability = product.find_element(By.XPATH, ".//span[contains(text(), 'In Stock') or contains(text(), 'Out of Stock') or contains(text(), 'Available')]").text
+        except:
+            availability = "Check product page"
+
+        # Extract Delivery Date
+        try:
+            delivery_date = product.find_element(By.XPATH, ".//span[contains(text(), 'Delivery') or contains(text(), 'Arrives')]").text
+        except:
+            delivery_date = "Check product page"
+
+        # If availability or delivery_date is missing, open product page
+        if availability == "Check product page" or delivery_date == "Check product page":
+            try:
+                product_link = product.find_element(By.TAG_NAME, "a").get_attribute("href")
+                availability, delivery_date = extract_product_page_details(product_link)
+            except:
+                print("⚠️ Couldn't retrieve detailed page info!")
+
         # Debugging: Print extracted details
-        print(f"📌 Product: {name}\n   ➡ Price: ₹{price}\n   ⭐ Rating: {rating}\n   📝 Reviews: {reviews}\n")
+        print(f"📌 Product: {name}\n   ➡ Price: ₹{price}\n   ⭐ Rating: {rating}\n   📝 Reviews: {reviews}\n   💰 Discount: {discount}\n   📦 Availability: {availability}\n   🚚 Delivery Date: {delivery_date}\n")
 
         # Append data to list
-        product_list.append([name, f"₹{price}", rating, reviews])
+        product_list.append([name, f"₹{price}", rating, reviews, discount, availability, delivery_date])
 
-    # Highlight and click the "Next" button
+    # Click the "Next" button
     try:
         next_button = driver.find_element(By.XPATH, "//a[contains(@class, 's-pagination-next')]")
         if "s-pagination-disabled" in next_button.get_attribute("class"):
             print("✅ Reached the last page.")
             break  # Stop if the "Next" button is disabled
 
-        # Highlight the "Next" button
-        highlight_next_button(driver)
-
-        # Click the "Next" button using JavaScript
         driver.execute_script("arguments[0].click();", next_button)
         print("🖱️ Clicked the 'Next' button.")
         time.sleep(random.uniform(5, 10))  # Random delay before scraping the next page
